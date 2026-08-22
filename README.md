@@ -102,7 +102,7 @@ The mocked runtime-API suite covers labelled and `defaultRule` routers, inherite
 
 ## Publishing containers
 
-The GitHub Actions workflow builds `linux/amd64`, `linux/arm64`, and `linux/arm/v7` images in GHCR. A pushed `v*` tag publishes a release. The workflow can also be run manually with a `release_tag`; manual releases publish that tag and update `latest`.
+The GitHub Actions workflow builds `linux/amd64`, `linux/arm64`, and `linux/arm/v7` images in GHCR. Run the **Docker** workflow manually with a `release_tag`; it publishes that tag and updates `latest`. The workflow also declares a `v*` tag trigger, but manual dispatch is the reliable release path for forks where inherited tag events do not start Actions runs.
 
 Published images for this fork are available as:
 
