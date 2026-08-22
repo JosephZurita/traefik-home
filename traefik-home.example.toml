@@ -1,14 +1,18 @@
+[entrypoints]
+internal = ["web"]
+external = ["websecure"]
+
 [ui]
 show_status = true
 open_in_new_tab = false
 
-[overrides.router."admin@docker"]
+[routers."admin@docker"]
+entrypoint = "web"
 hide = true
 
-[overrides.router."photos@docker"]
+[routers."photos@docker"]
+entrypoint = "web"
+application = "immich"
 title = "Family photos"
-icon = "https://static.example.com/photos.svg"
+icon = "catalog:immich"
 group = "Media"
-
-[overrides.hostname."special.example.com"]
-title = "Special app"

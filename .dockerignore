@@ -1,0 +1,8 @@
+.git
+.github
+.catalog-source
+data
+doc
+test
+__pycache__
+*.py[cod]
