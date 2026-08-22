@@ -6,11 +6,12 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "app"))
 from server import App, Card
 
 class DiscoveryTests(unittest.TestCase):
-    def app(self, routers, entrypoints=None, config=""):
+    def app(self, routers, entrypoints=None, config="", extra_env=None):
         tmp=tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         cfg=Path(tmp.name)/"config.toml"; cfg.write_text(config,encoding="utf-8")
         env={"CACHE_DIR":tmp.name,"CONFIG_FILE":str(cfg),"FETCH_TIMEOUT_SECONDS":".1"}
-        app=App(env); app.api=lambda path: routers if path.endswith("routers") else (entrypoints or [{"name":"web","address":":80"},{"name":"websecure","address":":443"}])
+        env.update(extra_env or {})
+        app=App(env); app.api=lambda path: routers if path.endswith("routers") else (entrypoints if entrypoints is not None else [{"name":"web","address":":80"},{"name":"websecure","address":":443"}])
         return app
 
     def test_default_config_lives_in_data_volume(self):
@@ -27,6 +28,24 @@ class DiscoveryTests(unittest.TestCase):
         ]
         cards=self.app(routers,[{"name":"web","address":":80","asDefault":True}]).discover()
         self.assertEqual([c.url for c in cards],["http://implicit.test","http://labelled.test","http://whoami.test"])
+
+    def test_removed_entrypoint_is_not_used(self):
+        routers=[{"name":"stale@docker","rule":"Host(`stale.test`)","entryPoints":["removed"]}]
+        self.assertEqual(self.app(routers,[{"name":"web","address":":80"}]).discover(),[])
+
+    def test_removed_entrypoint_is_filtered_when_router_has_a_live_one(self):
+        routers=[{"name":"mixed@docker","rule":"Host(`mixed.test`)","entryPoints":["removed","lan"]}]
+        cards=self.app(routers,[{"name":"lan","address":":8080"}]).discover()
+        self.assertEqual([c.url for c in cards],["http://mixed.test"])
+
+    def test_scheme_hints_do_not_manufacture_entrypoints(self):
+        routers=[{"name":"implicit@docker","rule":"Host(`implicit.test`)","entryPoints":[]}]
+        self.assertEqual(self.app(routers,[]).discover(),[])
+
+    def test_removed_explicit_default_does_not_fall_back(self):
+        routers=[{"name":"implicit@docker","rule":"Host(`implicit.test`)","entryPoints":[]}]
+        app=self.app(routers,[{"name":"web","address":":80"}],extra_env={"DEFAULT_ENTRYPOINTS":"removed"})
+        self.assertEqual(app.discover(),[])
 
     def test_gluetun_routers_stay_separate_and_unrelated_instances_survive(self):
         routers=[

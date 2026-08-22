@@ -78,12 +78,12 @@ This deliberately avoids encoding homepage metadata in fake Traefik middleware c
 | `REFRESH_SECONDS` | `60` | Router refresh interval |
 | `METADATA_REFRESH_SECONDS` | `86400` | Page title/favicon cache lifetime |
 | `FETCH_TIMEOUT_SECONDS` | `5` | Traefik/application request timeout |
-| `HTTP_ENTRYPOINTS` | `web` | Comma-separated scheme overrides |
-| `HTTPS_ENTRYPOINTS` | `websecure` | Comma-separated scheme overrides |
+| `HTTP_ENTRYPOINTS` | `web` | Comma-separated HTTP scheme hints for existing entrypoints |
+| `HTTPS_ENTRYPOINTS` | `websecure` | Comma-separated HTTPS scheme hints for existing entrypoints |
 | `DEFAULT_ENTRYPOINTS` | auto | Fallback when a runtime router omits entrypoints |
 | `PORT` | `80` | Listen port |
 
-Entrypoints marked `asDefault` by Traefik are preferred for routers that omit them. `DEFAULT_ENTRYPOINTS` covers older API versions/configurations that do not expose that flag. TLS routers always use HTTPS; otherwise explicit mappings and entrypoint addresses determine the scheme.
+Entrypoints marked `asDefault` by Traefik are preferred for routers that omit them. `DEFAULT_ENTRYPOINTS` covers older API versions/configurations that do not expose that flag. All configured defaults and router entrypoints are intersected with the live `/api/entrypoints` response, so a removed entrypoint cannot be inferred from an environment hint or stale router reference. TLS routers always use HTTPS; otherwise explicit mappings and entrypoint addresses determine the scheme.
 
 ## Fallbacks and limitations
 
@@ -108,5 +108,5 @@ Published images for this fork are available as:
 
 ```sh
 docker pull ghcr.io/josephzurita/traefik-home:latest
-docker pull ghcr.io/josephzurita/traefik-home:v2.0.1
+docker pull ghcr.io/josephzurita/traefik-home:v2.0.2
 ```

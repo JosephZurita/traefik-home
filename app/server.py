@@ -48,23 +48,28 @@ class App:
         result.update(o.get("hostname",{}).get(host,{})); result.update(o.get("router",{}).get(router,{})); return result
     def entrypoint_info(self, entrypoints):
         http=set(csv(self.env.get("HTTP_ENTRYPOINTS","web"))); https=set(csv(self.env.get("HTTPS_ENTRYPOINTS","websecure")))
-        schemes={}; defaults=[]
+        schemes={}; defaults=[]; available=[]
         for ep in entrypoints:
-            name=ep.get("name",""); schemes[name]="https" if name in https or re.search(r":443(?:/|$)",ep.get("address","")) else "http"
+            name=ep.get("name","")
+            if not name: continue
+            available.append(name); schemes[name]="https" if name in https or re.search(r":443(?:/|$)",ep.get("address","")) else "http"
             if ep.get("asDefault"): defaults.append(name)
-        schemes.update({x:"http" for x in http}); schemes.update({x:"https" for x in https})
-        return schemes, csv(self.env.get("DEFAULT_ENTRYPOINTS","")) or defaults or list(schemes)
+        schemes.update({x:"http" for x in http if x in schemes}); schemes.update({x:"https" for x in https if x in schemes})
+        requested=csv(self.env.get("DEFAULT_ENTRYPOINTS",""))
+        configured=[x for x in requested if x in schemes]
+        return schemes, configured if requested else defaults or available
     def discover(self):
         routers=self.api("/api/http/routers")
-        try: entrypoints=self.api("/api/entrypoints")
-        except (OSError,ValueError): entrypoints=[]
+        entrypoints=self.api("/api/entrypoints")
         schemes,defaults=self.entrypoint_info(entrypoints); cards=[]
         for item in routers:
             name=item.get("name",""); match=HOST_RE.search(item.get("rule",""))
             if not name or not match: continue
             host=match.group(1); override=self.override(name,host)
             if override.get("hide",False): continue
-            eps=item.get("entryPoints") or defaults; ep=eps[0] if eps else ""
+            eps=[ep for ep in (item.get("entryPoints") or defaults) if ep in schemes]
+            if not eps: continue
+            ep=eps[0]
             scheme="https" if item.get("tls") is not None else schemes.get(ep,"http")
             path=PATH_RE.search(item.get("rule","")); path=path.group(1) if path else ""
             if path and not path.startswith("/"): path="/"+path
