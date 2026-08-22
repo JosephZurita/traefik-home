@@ -29,26 +29,25 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro # Traefik needs this; Home does not
 
   traefik-home:
-    image: ghcr.io/santimar/traefik-home:latest
+    image: ghcr.io/josephzurita/traefik-home:latest
     environment:
       TRAEFIK_URL: http://traefik:8080
     volumes:
-      - traefik-home-cache:/data
-      - ./traefik-home.toml:/config/traefik-home.toml:ro
+      - ./data:/data
     labels:
       traefik.enable: "true"
       traefik.http.routers.traefik-home.rule: Host(`home.example.com`)
       traefik.http.services.traefik-home.loadbalancer.server.port: "80"
 
-volumes:
-  traefik-home-cache:
 ```
 
-If the API is exposed through an authenticated internal router instead, set `TRAEFIK_URL` to that URL. The current release supports an unauthenticated API endpoint; keep it private.
+For overrides, create `./data/traefik-home.toml` from the supplied `traefik-home.example.toml`. The file is optional; the same directory stores the generated favicon cache under `./data/icons`.
+
+The current release cannot send authentication headers to Traefik. `TRAEFIK_URL` must therefore point to an API endpoint that accepts unauthenticated requests; keep that endpoint private and reachable only on a trusted network.
 
 ## Configuration
 
-The optional `/config/traefik-home.toml` uses exact effective router names (normally including `@docker`) and/or hostnames. Router matches take precedence over hostname matches.
+The optional `/data/traefik-home.toml` uses exact effective router names (normally including `@docker`) and/or hostnames. Router matches take precedence over hostname matches. Configuration is read at startup, so restart the container after changing it.
 
 ```toml
 [ui]
@@ -74,7 +73,7 @@ This deliberately avoids encoding homepage metadata in fake Traefik middleware c
 | Variable | Default | Purpose |
 |---|---|---|
 | `TRAEFIK_URL` | `http://traefik:8080` | Traefik runtime API base URL |
-| `CONFIG_FILE` | `/config/traefik-home.toml` | Override configuration |
+| `CONFIG_FILE` | `/data/traefik-home.toml` | Override configuration |
 | `CACHE_DIR` | `/data/icons` | Persistent favicon/metadata cache |
 | `REFRESH_SECONDS` | `60` | Router refresh interval |
 | `METADATA_REFRESH_SECONDS` | `86400` | Page title/favicon cache lifetime |
@@ -99,4 +98,15 @@ Entrypoints marked `asDefault` by Traefik are preferred for routers that omit th
 python -m unittest discover -s test -p 'test_*.py' -v
 ```
 
-The suite covers labelled and `defaultRule` runtime routers, inherited entrypoints, multiple Gluetun-style routers, unrelated names for multiple application instances, favicon discovery and fallback behavior, generic icons, and filtering/overrides.
+The mocked runtime-API suite covers labelled and `defaultRule` routers, inherited entrypoints, multiple Gluetun-style routers, unrelated names for multiple application instances, favicon discovery and fallback behavior, generic icons, and filtering/overrides.
+
+## Publishing containers
+
+The GitHub Actions workflow builds `linux/amd64`, `linux/arm64`, and `linux/arm/v7` images in GHCR. A pushed `v*` tag publishes a release. The workflow can also be run manually with a `release_tag`; manual releases publish that tag and update `latest`.
+
+Published images for this fork are available as:
+
+```sh
+docker pull ghcr.io/josephzurita/traefik-home:latest
+docker pull ghcr.io/josephzurita/traefik-home:v2.0.1
+```

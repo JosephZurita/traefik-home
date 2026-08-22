@@ -39,7 +39,7 @@ class App:
         self.cache=Path(self.env.get("CACHE_DIR","/data/icons")); self.cache.mkdir(parents=True,exist_ok=True)
         self.timeout=float(self.env.get("FETCH_TIMEOUT_SECONDS","5")); self.cards=[]; self.lock=threading.Lock(); self.last_error=""
         try:
-            with open(self.env.get("CONFIG_FILE","/config/traefik-home.toml"),"rb") as f: self.config=tomllib.load(f)
+            with open(self.env.get("CONFIG_FILE","/data/traefik-home.toml"),"rb") as f: self.config=tomllib.load(f)
         except FileNotFoundError: self.config={}
     def api(self,path):
         with urllib.request.urlopen(self.traefik+path,timeout=self.timeout) as r:return json.load(r)

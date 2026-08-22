@@ -13,6 +13,12 @@ class DiscoveryTests(unittest.TestCase):
         app=App(env); app.api=lambda path: routers if path.endswith("routers") else (entrypoints or [{"name":"web","address":":80"},{"name":"websecure","address":":443"}])
         return app
 
+    def test_default_config_lives_in_data_volume(self):
+        tmp=tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
+        with patch("builtins.open",side_effect=FileNotFoundError) as opened:
+            App({"CACHE_DIR":tmp.name})
+        opened.assert_called_once_with("/data/traefik-home.toml","rb")
+
     def test_explicit_default_rule_and_default_entrypoints(self):
         routers=[
           {"name":"labelled@docker","rule":"Host(`labelled.test`)","entryPoints":["web"]},
