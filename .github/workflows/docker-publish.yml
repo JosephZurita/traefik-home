@@ -6,6 +6,12 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Container tag to publish (for example, v2.0.0)
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -46,7 +52,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: type=semver,pattern={{raw}}
+          tags: |
+            type=semver,pattern={{raw}}
+            type=raw,value=${{ inputs.release_tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
