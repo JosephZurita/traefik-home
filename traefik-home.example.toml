@@ -1,0 +1,14 @@
+[ui]
+show_status = true
+open_in_new_tab = false
+
+[overrides.router."admin@docker"]
+hide = true
+
+[overrides.router."photos@docker"]
+title = "Family photos"
+icon = "https://static.example.com/photos.svg"
+group = "Media"
+
+[overrides.hostname."special.example.com"]
+title = "Special app"

@@ -1,158 +1,102 @@
-[![ghcr.io release](https://img.shields.io/github/v/release/santimar/traefik-home?label=latest%20version&style=for-the-badge)](https://github.com/santimar/traefik-home/pkgs/container/traefik-home/versions)
-
 # Traefik Home
+
 ![preview](/doc/preview.jpg)
 
-This tool will create a homepage for quickly accessing services which are hosted via the [Traefik reverse proxy](https://traefik.io/traefik/). This repo is for those using V2 and V3 of Traefik (for those using V1, please look [here](https://github.com/lobre/traefik-home))
+Traefik Home creates a homepage from Traefik's **effective HTTP routers**. Each router is one card. It reads Traefik's runtime API rather than Docker labels or the Docker socket, so it supports Docker `defaultRule`, implicit/default entrypoints, file-provider routers, and multiple applications routed through one container (including Gluetun-style setups).
 
-Domains are automatically retrieved reading traefik labels and only http(s) routers are supported.
+## How it works
 
-> [!NOTE]  
-> By default, this tool expects the _http_ entrypoint to be named `web` and the _https_ entrypoint to be named `websecure`. If you use different names in your Traefik [static configuration](https://doc.traefik.io/traefik/getting-started/configuration-overview/#the-static-configuration), you can configure them via the `traefik-home.http-entrypoints` and `traefik-home.https-entrypoints` labels (see [Labels to configure Home](#labels-to-configure-home)).
+The small Python service polls `/api/http/routers` and `/api/entrypoints`. It extracts the first effective `Host()` and practical `Path()`/`PathPrefix()` from each rule, then fetches that URL server-side to discover its HTML title and favicon. Icon links are resolved relative to the final page URL; `/favicon.ico` is tried next. Results and failures are cached on disk so clients never trigger application metadata requests and page loads do not repeatedly fetch icons.
 
-## Why this tool
+No Docker socket or Docker API access is used. Router cards are never correlated or deduplicated by container, service, or IP.
 
-Traefik is a reverse proxy that reads label on the docker compose file and automatically set up itself, so that you can access a service on a container with the specified hostname.
-Even though Traefik provides a dashboard that allow you to see services that are proxied, you still have to remember (or save somewhere) all the hostnames in order to access your services.
-This tool creates a Home page where all hostnames all listed, for easy access.
+## Deployment
 
-It uses [docker-gen](https://github.com/jwilder/docker-gen) to monitor docker configuration changes and render a web page that will be served using `nginx`
-This way changes are immediately reflected whenever something gets updated.
+Traefik's API must be reachable by this container. It need not be publicly exposed; enabling the dashboard API and routing `api@internal` on a private Docker network is recommended. For a simple trusted internal network, Traefik's `--api.insecure=true` exposes it on port 8080.
 
-## Usage
-
-For a quick preview you can just run the image with the following docker run command:
-
-```
-docker run --name traefik-home \
-    -v /var/run/docker.sock:/var/run/docker.sock:ro \
-    --label traefik.enable=true \
-    --label traefik.http.routers.traefik-home.rule="Host(`home.example.com`)" \
-    --label traefik.http.services.traefik-home.loadbalancer.server.port="80" \
-    ghcr.io/santimar/traefik-home:latest
-```
-
-Wait for the service to be online, then go to `home.example.com` and enjoy the view.
-
-For long runs however, the docker-compose file is a better approach.
-
-## Docker compose
 ```yaml
-version: '3'
-
 services:
-  traefik-home:
-    image: ghcr.io/santimar/traefik-home:latest  # or use a specific tag version
-    container_name: traefik-home
+  traefik:
+    image: traefik:v3.5
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.defaultRule=Host(`{{ normalize .Name }}.example.com`)
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Traefik needs this; Home does not
+
+  traefik-home:
+    image: ghcr.io/santimar/traefik-home:latest
+    environment:
+      TRAEFIK_URL: http://traefik:8080
+    volumes:
+      - traefik-home-cache:/data
+      - ./traefik-home.toml:/config/traefik-home.toml:ro
     labels:
-      - traefik.enable="true"
-      - traefik.http.routers.traefik-home.rule="Host(`home.example.com`)"
-      - traefik.http.services.traefik-home.loadbalancer.server.port="80"
+      traefik.enable: "true"
+      traefik.http.routers.traefik-home.rule: Host(`home.example.com`)
+      traefik.http.services.traefik-home.loadbalancer.server.port: "80"
 
-  other-service:
-    image: ...
-    labels:
-      # see below for more info about exposed containers configuration
-      - traefik-home.icon: "https://url/of/an/icon.png"
-      - traefik-home.alias: "Alias"
-    
+volumes:
+  traefik-home-cache:
 ```
 
-## Labels to configure Home
+If the API is exposed through an authenticated internal router instead, set `TRAEFIK_URL` to that URL. The current release supports an unauthenticated API endpoint; keep it private.
 
-The `traefik-home` container can be configured using the following optional labels.
+## Configuration
 
-| Label                             | Description                                                                                   | Default      |
-|-----------------------------------|-----------------------------------------------------------------------------------------------|--------------|
-| traefik-home.show-footer          | Whether to show footer on the home page                                                       | true         |
-| traefik-home.show-status-dot      | Whether to show green/red status dot near the container name                                  | true         |
-| traefik-home.sort-by              | Container list sort order. Supported values are "default" (container creation date) or "name" | "default"    |
-| traefik-home.open-link-in-new-tab | Whether to open services link in a new tab                                                    | false        |
-| traefik-home.http-entrypoints     | Comma-separated list of entrypoint names treated as HTTP. Example: `web1,web2`                | "web"        |
-| traefik-home.https-entrypoints    | Comma-separated list of entrypoint names treated as HTTPS. Example: `websecure1,websecure2`   | "websecure"  |
+The optional `/config/traefik-home.toml` uses exact effective router names (normally including `@docker`) and/or hostnames. Router matches take precedence over hostname matches.
 
-## Labels to configure containers
+```toml
+[ui]
+show_status = true
+open_in_new_tab = false
 
-Home will use the following `traefik` labels to generate the HTML page.
+[overrides.router."admin@docker"]
+hide = true
 
-| Label                                        | Description                                                      |
-|----------------------------------------------|------------------------------------------------------------------|
-| traefik.http.routers.\<service\>.rule        | Domain and path used by Home to generate the link to the service |
-| traefik.http.routers.\<service\>.entrypoints | Entrypoints matched against `traefik-home.http-entrypoints` and `traefik-home.https-entrypoints` to determine the protocol |
-| traefik.enable                               | Only explicitly enabled container are shown on the homepage      |
+[overrides.router."qbittorrent@docker"]
+title = "Downloads"
+icon = "https://static.example.com/qbit.svg"
+group = "Media"
 
-<details>
-<summary>note about setting multiple domains and/or paths on the same rule</summary>
-
----
-Traefik allows you to set multiple domains and path on the same rule like 
-```
-Host(`example.org`) && PathPrefix(`/path`) || Host(`domain.com`) && Path(`/path`)
-```
-However Traefik-Home will only use the first `Host` and `Path/PathPrefix` found within the rule.
-
-In this example, the app will be available at `example.org/path`, ignoring the other domain.
-
-Also, keep in mind that using a rule like 
-```
-Host(`example.org`) || Host(`domain.com`) && PathPrefix(`/path`)
-```
-will create a link to `example.org/path`.
-
-In a situation like this, you just have to rewrite the rule like 
-```
-Host(`example.org`) && PathPrefix(`/`) || Host(`domain.com`) && PathPrefix(`/path`)
-```
-or like 
-```
-Host(`domain.com`) && PathPrefix(`/path`) || Host(`example.org`)
-```
----
-</details>
-
-On each exposed container, the following optional labels can be added to provide a personalized configuration.
-
-| Label                                   | Description                                                                                                                               |
-|-----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| traefik-home.hide="true"                | Do not show this container in the home page                                                                                               |
-| traefik-home.icon="https://url/of/icon" | URL of an image that will be used as icon for the container. If this label is not used, a icon with the container's initials will be used |
-| traefik-home.alias="alias"              | If used, the alias will be shown instead of the container name                                                                            |
-
-<details>
-<summary>serving self-hosted icons</summary>
-
-`traefik-home.icon` must be an URL, but since `traefik-home` runs on `nginx`, we can take advandage of it and serve self-hosted icons as well.
-
-You will need to mount icon file(s) to `/usr/share/nginx/html/icons/` folder on `traefik-home` container like:
-
-```yaml
-traefik-home:
-   image: ghcr.io/santimar/traefik-home:latest
-   volumes:
-       - /var/run/docker.sock:/var/run/docker.sock:ro
-       - "/path/to/your/icon.svg:/usr/share/nginx/html/icons/my-icon.svg:ro"
-   labels:
-       - "traefik.enable=true"
-       - "traefik.http.routers.traefik-home.rule=Host(`dashboard.localhost`)"
- ```
-
-And then reference it in other container labels like so:
-```yaml
-   - "traefik-home.icon=http://dashboard.localhost/icons/my-icon.svg"
-```
-</details>
-
-## Update
-
-When a new release is available, just:
-```
-docker pull ghcr.io/santimar/traefik-home:latest
+[overrides.hostname."special.example.com"]
+title = "Special app"
 ```
 
-and then 
+This deliberately avoids encoding homepage metadata in fake Traefik middleware configuration.
 
+### Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TRAEFIK_URL` | `http://traefik:8080` | Traefik runtime API base URL |
+| `CONFIG_FILE` | `/config/traefik-home.toml` | Override configuration |
+| `CACHE_DIR` | `/data/icons` | Persistent favicon/metadata cache |
+| `REFRESH_SECONDS` | `60` | Router refresh interval |
+| `METADATA_REFRESH_SECONDS` | `86400` | Page title/favicon cache lifetime |
+| `FETCH_TIMEOUT_SECONDS` | `5` | Traefik/application request timeout |
+| `HTTP_ENTRYPOINTS` | `web` | Comma-separated scheme overrides |
+| `HTTPS_ENTRYPOINTS` | `websecure` | Comma-separated scheme overrides |
+| `DEFAULT_ENTRYPOINTS` | auto | Fallback when a runtime router omits entrypoints |
+| `PORT` | `80` | Listen port |
+
+Entrypoints marked `asDefault` by Traefik are preferred for routers that omit them. `DEFAULT_ENTRYPOINTS` covers older API versions/configurations that do not expose that flag. TLS routers always use HTTPS; otherwise explicit mappings and entrypoint addresses determine the scheme.
+
+## Fallbacks and limitations
+
+- Rules without a `Host()` cannot produce a public link and are skipped.
+- For compound rules, the first host and first path matcher are used.
+- Explicit title/icon overrides always win. Otherwise the HTML title and discovered icon are used. Failed icon discovery renders the existing colored initial tile.
+- Persist `/data` to retain icons across restarts. Failed discovery is cached too and retried after `METADATA_REFRESH_SECONDS`.
+
+## Tests
+
+```sh
+python -m unittest discover -s test -p 'test_*.py' -v
 ```
-docker-compose up -d traefik-home 
-```
+
+The suite covers labelled and `defaultRule` runtime routers, inherited entrypoints, multiple Gluetun-style routers, unrelated names for multiple application instances, favicon discovery and fallback behavior, generic icons, and filtering/overrides.

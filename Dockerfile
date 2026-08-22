@@ -1,16 +1,9 @@
-ARG DOCKER_GEN_VERSION=0.9.0
-FROM ghcr.io/nginx-proxy/docker-gen:${DOCKER_GEN_VERSION} AS docker-gen
-
-FROM nginx:1.21-alpine
-
-COPY --from=docker-gen /usr/local/bin/docker-gen /usr/local/bin/docker-gen
-COPY ./app /app
-
-#ensure docker-entrypoint is executable
-RUN chmod +x /app/docker-entrypoint.sh 
-COPY ./static/ /usr/share/nginx/html/
-WORKDIR /app/
-
+FROM python:3.13-alpine
+WORKDIR /app
+COPY app /app
+COPY static /app/static
+ENV TRAEFIK_URL=http://traefik:8080 CACHE_DIR=/data/icons PORT=80
+VOLUME ["/data"]
 EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 CMD curl -f http://localhost/ || exit 1
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1/health || exit 1
+CMD ["python", "/app/server.py"]
