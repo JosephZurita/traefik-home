@@ -166,7 +166,7 @@ class FaviconTests(unittest.TestCase):
             return b"PNG","image/png",url
         app.fetch=fetch; card=Card("portal@docker","portal.invalid","http://portal.invalid","portal"); app.enrich(card)
         self.assertEqual(calls[1],"http://portal.invalid/touch.png")
-    def test_manifest_name_and_high_resolution_icon(self):
+    def test_manifest_name_prefers_catalog_svg_over_manifest_png(self):
         app=self.app(); calls=[]
         def fetch(url):
             calls.append(url)
@@ -175,12 +175,34 @@ class FaviconTests(unittest.TestCase):
             return b"PNG","image/png",url
         app.fetch=fetch; card=Card("odd@docker","unknown.invalid","http://unknown.invalid","odd"); app.enrich(card)
         self.assertEqual(card.application,"jellyfin"); self.assertEqual(card.detection_source,"manifest-name")
-        self.assertEqual(calls[2],"http://unknown.invalid/icon-512.png")
+        self.assertEqual(card.icon,"/catalog-icons/jellyfin.svg"); self.assertEqual(len(calls),2)
+    def test_manifest_png_is_used_without_catalog_match(self):
+        app=self.app(); calls=[]
+        def fetch(url):
+            calls.append(url)
+            if len(calls)==1:return b'<link rel="manifest" href="/manifest.json">',"text/html",url
+            if url.endswith("manifest.json"):return b'{"name":"Uncatalogued Portal","icons":[{"src":"icon-512.png","sizes":"512x512","type":"image/png"}]}',"application/manifest+json",url
+            return b"PNG","image/png",url
+        app.fetch=fetch; card=Card("odd@docker","unknown.invalid","http://unknown.invalid","odd"); app.enrich(card)
+        self.assertEqual(card.application,""); self.assertEqual(calls[2],"http://unknown.invalid/icon-512.png"); self.assertTrue(card.icon.startswith("/icons/"))
     def test_catalog_icon_fallback_avoids_favicon_request(self):
         app=self.app(); calls=[]
         app.fetch=lambda url:(calls.append(url) or (b'<title>Plex</title>',"text/html",url))
         card=Card("odd@docker","unknown.invalid","http://unknown.invalid","odd"); app.enrich(card)
         self.assertEqual(card.application,"plex"); self.assertTrue(card.icon.startswith("/catalog-icons/plex.")); self.assertEqual(len(calls),1)
+    def test_catalog_svg_beats_high_resolution_page_png(self):
+        app=self.app(); calls=[]
+        app.fetch=lambda url:(calls.append(url) or (b'<title>Traefik Proxy</title><link rel="icon" sizes="512x512" href="icon.png">',"text/html",url))
+        card=Card("proxy@docker","proxy.invalid","http://proxy.invalid","proxy"); app.enrich(card)
+        self.assertEqual(card.application,"traefik-proxy"); self.assertEqual(card.icon,"/catalog-icons/traefik-proxy.svg"); self.assertEqual(len(calls),1)
+    def test_site_svg_remains_preferred_over_catalog_svg(self):
+        app=self.app(); calls=[]
+        def fetch(url):
+            calls.append(url)
+            if len(calls)==1:return b'<title>Plex</title><link rel="icon" href="brand.svg"><link rel="icon" sizes="512x512" href="icon.png">',"text/html",url
+            return b"<svg/>","image/svg+xml",url
+        app.fetch=fetch; card=Card("plex@docker","plex.invalid","http://plex.invalid","plex"); app.enrich(card)
+        self.assertEqual(calls,["http://plex.invalid","http://plex.invalid/brand.svg"]); self.assertTrue(card.icon.startswith("/icons/"))
     def test_manual_application_and_catalog_icon_override(self):
         tmp=tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         cfg=Path(tmp.name)/"config.toml"; cfg.write_text('''[routers."odd@docker"]\napplication="plex"\ntitle="Cinema"\nicon="catalog:jellyfin"\n''',encoding="utf-8")

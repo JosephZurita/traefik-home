@@ -28,7 +28,7 @@ GENERIC_NAMES = {
     "app", "application", "dashboard", "home", "index", "log in", "login",
     "media", "media server", "server", "service", "sign in", "tools", "web",
 }
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 def csv(value: str) -> list[str]:
@@ -73,9 +73,13 @@ class IconCandidate:
     content_type: str = ""
 
     @property
-    def score(self) -> int:
+    def is_svg(self) -> bool:
         path = urllib.parse.urlparse(self.url).path.lower()
-        if self.content_type == "image/svg+xml" or path.endswith(".svg"):
+        return self.content_type == "image/svg+xml" or path.endswith(".svg")
+
+    @property
+    def score(self) -> int:
+        if self.is_svg:
             return 100_000
         if self.source == "manifest":
             return 80_000 + self.size
@@ -481,10 +485,16 @@ class App:
             card.title = detection.name
         configured_icon = self.resolve_configured_icon(override.get("icon"))
         icon_path = configured_icon
-        high_quality = [candidate for candidate in candidates if candidate.high_quality]
+        site_svg = [candidate for candidate in candidates if candidate.is_svg]
+        high_quality_raster = [candidate for candidate in candidates if candidate.high_quality and not candidate.is_svg]
         ordinary = [candidate for candidate in candidates if not candidate.high_quality]
+        if not icon_path:
+            icon_path = self.cache_remote_icon(card, key, site_svg)
+        catalog_svg = detection.icon.lower().endswith(".svg")
+        if not icon_path and catalog_svg and detection.confidence >= 0.60:
+            icon_path = "/catalog-icons/" + detection.icon
         if not icon_path and not manual.slug:
-            icon_path = self.cache_remote_icon(card, key, high_quality)
+            icon_path = self.cache_remote_icon(card, key, high_quality_raster)
         if not icon_path and detection.icon and detection.confidence >= 0.60:
             icon_path = "/catalog-icons/" + detection.icon
         if not icon_path:

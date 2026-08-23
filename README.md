@@ -25,11 +25,15 @@ Generic or ambiguous matches remain `unknown`. Detection uses a bundled, runtime
 Icon selection follows this order:
 
 1. explicit `icon` override;
-2. high-resolution site icon, including SVG, web-app manifest, large declared icon, or Apple touch icon;
-3. detected application's offline catalog icon;
-4. ordinary page icon;
-5. `/favicon.ico`;
-6. generic initials.
+2. site-provided SVG;
+3. detected application's offline catalog SVG;
+4. high-resolution site raster icon, including web-app manifest, large declared icon, or Apple touch icon;
+5. detected application's offline catalog raster icon;
+6. ordinary page icon;
+7. `/favicon.ico`;
+8. generic initials.
+
+Explicit overrides remain authoritative even when they select a raster image. Otherwise SVG is preferred over PNG/WebP/ICO so icons remain sharp when cards or display density change.
 
 Remote metadata and icons, including failed discovery, are cached under `/data/icons`. Catalog lookup never requires a network request.
 
