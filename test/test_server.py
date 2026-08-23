@@ -71,6 +71,34 @@ class DiscoveryTests(unittest.TestCase):
         card=self.app(routers,entrypoints,extra_env=env).discover()[0]
         self.assertEqual((card.entrypoint,card.site_type,card.url,card.externally_available),("lan","both","https://both.test",True))
 
+    def test_same_url_internal_external_routers_become_one_card(self):
+        routers=[
+          {"name":"app-internal@docker","rule":"Host(`APP.test:443`)","entryPoints":["lan"]},
+          {"name":"app-external@docker","rule":"Host(`app.test`)","entryPoints":["wan"]},
+          {"name":"app-admin@docker","rule":"Host(`app.test`) && PathPrefix(`/admin`)","entryPoints":["wan"]},
+        ]
+        entrypoints=[{"name":"lan","address":":443"},{"name":"wan","address":":443"}]
+        env={"INTERNAL_ENTRYPOINTS":"lan","EXTERNAL_ENTRYPOINTS":"wan"}
+        app=self.app(routers,entrypoints,extra_env=env); cards=app.discover()
+        self.assertEqual([card.router for card in cards],["app-admin@docker","app-internal@docker"])
+        merged=next(card for card in cards if card.router == "app-internal@docker")
+        self.assertEqual((merged.url,merged.entrypoint,merged.site_type,merged.externally_available),("https://APP.test:443","lan","both",True))
+        self.assertEqual({source.router for source in merged.sources},{"app-internal@docker","app-external@docker"})
+        app.routers_file=app.cache/"routers.toml"; app.write_inventory(cards)
+        with app.routers_file.open("rb") as stream:data=__import__("tomllib").load(stream)
+        self.assertEqual(set(data["routers"]),{"app-internal@docker","app-external@docker","app-admin@docker"})
+        self.assertEqual(data["routers"]["app-external@docker"]["entrypoint"],"wan")
+        app.cards=cards; self.assertEqual(app.render().decode().count('href="https://APP.test:443"'),1)
+
+    def test_same_url_same_exposure_routers_remain_separate(self):
+        routers=[
+          {"name":"first@docker","rule":"Host(`same.test`)","entryPoints":["lan"]},
+          {"name":"second@file","rule":"Host(`same.test`)","entryPoints":["lan"]},
+        ]
+        entrypoints=[{"name":"lan","address":":443"}]
+        cards=self.app(routers,entrypoints,extra_env={"INTERNAL_ENTRYPOINTS":"lan","EXTERNAL_ENTRYPOINTS":""}).discover()
+        self.assertEqual({card.router for card in cards},{"first@docker","second@file"})
+
     def test_router_config_can_select_an_assigned_entrypoint(self):
         routers=[{"name":"both@docker","rule":"Host(`both.test`)","entryPoints":["wan","lan"]}]
         entrypoints=[{"name":"lan","address":":80"},{"name":"wan","address":":443"}]

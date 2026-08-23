@@ -2,13 +2,15 @@
 
 ![preview](/doc/preview.jpg)
 
-Traefik Home creates a homepage from Traefik's **effective HTTP routers**. Each router is one card. Discovery uses Traefik's runtime API rather than Docker labels, the Docker API, container IPs, or the Docker socket. This supports Docker `defaultRule`, inherited entrypoints, file-provider routers, and multiple applications routed through one Gluetun-style container.
+Traefik Home creates a homepage from Traefik's **effective HTTP routers**. Each effective router is normally one card; only an internal/external pair for the same route is combined. Discovery uses Traefik's runtime API rather than Docker labels, the Docker API, container IPs, or the Docker socket. This supports Docker `defaultRule`, inherited entrypoints, file-provider routers, and multiple applications routed through one Gluetun-style container.
 
 ## How it works
 
 The Python service polls `/api/http/routers` and `/api/entrypoints`. Internal and external entrypoint lists form an allowlist; routers on other entrypoints are omitted. Links always use HTTPS.
 
-If an internal and external route share a hostname, their cards show an **External** badge. Comparison is case-insensitive and ignores the port. Cards remain router-based and are never deduplicated by hostname, service, container, or IP.
+If separate internal and external routers produce the same effective HTTPS URL, they are shown as one card using the internal router and entrypoint, with an **External** badge. URL matching normalizes hostname case and the default HTTPS port. Routes with different paths or non-default ports remain separate cards.
+
+The badge is also applied when internal and external routes share a hostname but use different ports or paths. That hostname comparison is case-insensitive and ignores the port. No correlation or deduplication uses Docker containers, services, or IP addresses.
 
 For every card, the service fetches page metadata server-side and tries to identify the hosted application from:
 
@@ -109,7 +111,7 @@ If a configured entrypoint is invalid or removed, Home safely falls back to the 
 
 ### Generated router inventory
 
-After each successful refresh, `/data/routers.toml` is atomically replaced with an inventory of every active card. It is generated state and should not be edited. Every router always records its selected entrypoint:
+After each successful refresh, `/data/routers.toml` is atomically replaced with an inventory of every active Traefik router, including routers merged into one displayed card. It is generated state and should not be edited. Every router always records its selected entrypoint:
 
 ```toml
 [routers."photos@docker"]
@@ -172,7 +174,7 @@ Runtime startup and refresh never download catalog data.
 python -m unittest discover -s test -p 'test_*.py' -v
 ```
 
-The mocked runtime-API suite covers labelled and `defaultRule` routers, inherited entrypoints, internal/external filtering, port-independent external indicators, application detection and ambiguity, high-resolution icon ranking, offline catalog fallback, explicit overrides, generated inventories, Gluetun-style routers, favicon fallback, and generic icons.
+The mocked runtime-API suite covers labelled and `defaultRule` routers, inherited entrypoints, internal/external filtering, same-URL card merging, port-independent external indicators, application detection and ambiguity, high-resolution icon ranking, offline catalog fallback, explicit overrides, generated inventories, Gluetun-style routers, favicon fallback, and generic icons.
 
 ## Publishing containers
 

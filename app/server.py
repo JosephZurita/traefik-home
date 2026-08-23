@@ -13,7 +13,7 @@ import time
 import tomllib
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,6 +44,18 @@ def hostname_without_port(value: str) -> str:
         return (urllib.parse.urlsplit("//" + value).hostname or value).lower().rstrip(".")
     except ValueError:
         return value.lower().rstrip(".")
+
+
+def route_url_key(value: str) -> str:
+    """Normalize only URL components that cannot distinguish HTTP routes."""
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        port = parsed.port
+        authority = hostname if not port or port == 443 else f"{hostname}:{port}"
+        return urllib.parse.urlunsplit((parsed.scheme.lower(), authority, parsed.path, parsed.query, ""))
+    except ValueError:
+        return value
 
 
 def declared_icon_size(value: str) -> int:
@@ -196,6 +208,14 @@ class ApplicationCatalog:
 
 
 @dataclass
+class RouterSource:
+    router: str
+    entrypoint: str
+    site_type: str
+    status: str
+
+
+@dataclass
 class Card:
     router: str
     hostname: str
@@ -212,6 +232,7 @@ class Card:
     detection_confidence: float = 0.0
     detection_source: str = ""
     catalog_icon: str = ""
+    sources: list[RouterSource] = field(default_factory=list)
 
 
 class App:
@@ -300,6 +321,7 @@ class App:
             if route_path and not route_path.startswith("/"):
                 route_path = "/" + route_path
             site_type = "both" if internal_eps and external_eps else "internal" if internal_eps else "external"
+            status = item.get("status", "enabled")
             cards.append(Card(
                 router=name,
                 hostname=host,
@@ -307,16 +329,43 @@ class App:
                 title=override.get("title", name.split("@", 1)[0]),
                 icon=override.get("icon"),
                 group=override.get("group", ""),
-                status=item.get("status", "enabled"),
+                status=status,
                 entrypoint=selected,
                 site_type=site_type,
                 externally_available=bool(external_eps),
+                sources=[RouterSource(name, selected, site_type, status)],
             ))
+        cards = self.merge_exposure_duplicates(cards)
         external_hosts = {hostname_without_port(card.hostname) for card in cards if card.externally_available}
         for card in cards:
             if hostname_without_port(card.hostname) in external_hosts:
                 card.externally_available = True
         return sorted(cards, key=lambda card: (card.group.lower(), card.title.lower(), card.router.lower()))
+
+    @staticmethod
+    def merge_exposure_duplicates(cards):
+        """Collapse only cross-exposure duplicates with the same effective URL."""
+        by_url = {}
+        for card in cards:
+            by_url.setdefault(route_url_key(card.url), []).append(card)
+        merged = []
+        for matches in by_url.values():
+            internal = [card for card in matches if card.site_type in {"internal", "both"}]
+            external_only = [card for card in matches if card.site_type == "external"]
+            if not internal or not external_only:
+                merged.extend(matches)
+                continue
+            internal.sort(key=lambda card: (card.site_type != "internal", card.router.lower()))
+            representative = internal[0]
+            for external in external_only:
+                representative.sources.extend(external.sources or [RouterSource(
+                    external.router, external.entrypoint, external.site_type, external.status
+                )])
+            for card in internal:
+                card.site_type = "both"
+                card.externally_available = True
+            merged.extend(internal)
+        return merged
 
     def fetch(self, url):
         request = urllib.request.Request(url, headers={"User-Agent": "traefik-home/3"})
@@ -471,15 +520,19 @@ class App:
             f"commit = {self.toml_string(source.get('commit', ''))}",
             "",
         ]
-        for card in sorted(cards, key=lambda item: item.router):
+        inventory = []
+        for card in cards:
+            sources = card.sources or [RouterSource(card.router, card.entrypoint, card.site_type, card.status)]
+            inventory.extend((source, card) for source in sources)
+        for source, card in sorted(inventory, key=lambda item: item[0].router):
             lines.extend([
-                f"[routers.{self.toml_string(card.router)}]",
+                f"[routers.{self.toml_string(source.router)}]",
                 f"hostname = {self.toml_string(card.hostname)}",
                 f"url = {self.toml_string(card.url)}",
-                f"entrypoint = {self.toml_string(card.entrypoint)}",
-                f"exposure = {self.toml_string(card.site_type)}",
+                f"entrypoint = {self.toml_string(source.entrypoint)}",
+                f"exposure = {self.toml_string(source.site_type)}",
                 f"externally_available = {str(card.externally_available).lower()}",
-                f"status = {self.toml_string(card.status)}",
+                f"status = {self.toml_string(source.status)}",
                 f"title = {self.toml_string(card.title)}",
                 f"application = {self.toml_string(card.application or 'unknown')}",
                 f"detection_confidence = {card.detection_confidence:.2f}",
